@@ -43,7 +43,8 @@ pnpm build
 - Touch, Pencil, mouse, and trackpad are first-class inputs; keyboard shortcuts are accelerators, not requirements.
 - The first usable release stays small enough to test on iPhone, iPad, and desktop continuously.
 
-## License
+## License and branding
 
-No open-source license has been selected yet. The repository should not be published as an open contribution project until that decision is made.
+Source code is available under the [Mozilla Public License 2.0](LICENSE). Distributed modifications to covered source files remain available under MPL-2.0, and existing notices must be preserved.
 
+The license does not grant rights to Sublittoral Games names, logos, or product branding. Unofficial forks must use distinct branding and clearly identify themselves as forks; see [TRADEMARKS.md](TRADEMARKS.md).

@@ -2,12 +2,14 @@
   "name": "pixel-art-tool",
   "version": "0.0.0",
   "private": true,
+  "license": "MPL-2.0",
   "type": "module",
   "packageManager": "pnpm@10.34.4",
   "scripts": {
     "dev": "pnpm --filter @pixel-art-tool/web dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter @pixel-art-tool/web test:e2e",
     "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {

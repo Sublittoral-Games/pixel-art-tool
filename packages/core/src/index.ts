@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 export interface PaletteEntry {
   readonly id: string;
   readonly name: string;
@@ -82,4 +84,3 @@ function assertDimension(value: number, label: string): void {
     throw new RangeError(`Document ${label} must be an integer between 1 and 2048.`);
   }
 }
-

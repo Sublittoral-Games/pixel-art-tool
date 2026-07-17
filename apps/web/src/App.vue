@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MPL-2.0 -->
+
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import {
@@ -55,4 +57,3 @@ function recolor(): void {
     </section>
   </main>
 </template>
-

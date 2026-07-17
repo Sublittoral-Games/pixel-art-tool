@@ -22,4 +22,5 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
-
+      - run: pnpm --filter @pixel-art-tool/web exec playwright install --with-deps chromium webkit
+      - run: pnpm test:e2e

@@ -2,39 +2,19 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
-test.beforeEach(async ({ page }, testInfo) => {
-  if (testInfo.project.name !== "iphone-15-pro-max-webkit") {
-    return;
-  }
-
-  await page.addInitScript(() => {
-    class UnavailablePersistenceWorker extends EventTarget {
-      postMessage(request: { readonly requestId: number }): void {
-        queueMicrotask(() => {
-          this.dispatchEvent(new MessageEvent("message", {
-            data: {
-              requestId: request.requestId,
-              ok: false,
-              error: "OPFS unavailable in the WebKit test environment.",
-            },
-          }));
-        });
-      }
-
-      terminate(): void {}
-    }
-
-    Object.defineProperty(globalThis, "Worker", {
-      configurable: true,
-      value: UnavailablePersistenceWorker,
-    });
-  });
-});
-
 async function openEditor(page: Page): Promise<void> {
-  await page.goto("/");
+  const browserName = page.context().browser()?.browserType().name();
+  await page.goto(browserName === "webkit" ? "/?persistence=memory" : "/");
   await expect(page.getByRole("button", { name: "Pencil" })).toBeEnabled();
 }
+
+test("explicit memory-only mode bypasses persistence startup", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "iphone-15-pro-max-webkit", "Memory-only startup covers WebKit without OPFS.");
+  await openEditor(page);
+  await page.getByText("Project", { exact: true }).click();
+  await expect(page.getByTestId("persistence-status")).toContainText("local persistence disabled");
+  await expect(page.getByRole("button", { name: "Save checkpoint" })).toBeDisabled();
+});
 
 test("unlocks in memory-only mode when the persistence worker stalls", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "Persistence timeout runs once in desktop Chromium.");

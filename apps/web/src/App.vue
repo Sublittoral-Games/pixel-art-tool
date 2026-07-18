@@ -48,6 +48,7 @@ const persistenceAvailable = ref(false);
 const persistenceStatus = ref("Opening local project…");
 const mediaStatus = ref("Checking video export…");
 const importInput = ref<HTMLInputElement>();
+const memoryOnly = new URLSearchParams(window.location.search).get("persistence") === "memory";
 
 let history = new PixelHistory();
 let persistence: ProjectPersistence | undefined;
@@ -287,39 +288,44 @@ function handlePersistenceError(error: unknown): void {
 }
 
 onMounted(async () => {
-  try {
-    persistence = new ProjectPersistence();
-    const stored = await persistence.load();
-    if (!stored.originDocument) {
-      const serialized = encodePortableDocument(document.value);
-      await persistence.initialize(serialized);
-      originDocument.value = cloneIndexedDocument(document.value);
-      persistenceStatus.value = "Local project ready · checkpoint created";
-    } else {
-      const origin = decodePortableDocument(stored.originDocument);
-      const events = stored.journalEvents.map(decodeJournalEvent);
-      const checkpoint = stored.checkpointDocument
-        ? decodePortableDocument(stored.checkpointDocument)
-        : cloneIndexedDocument(origin);
-      const recoveryEvents = stored.recoveryEvents.map(decodeJournalEvent);
-      const recovered = replayJournalEvents(checkpoint, recoveryEvents);
-      const fullyReplayed = replayJournalEvents(origin, events);
-      if (encodePortableDocument(fullyReplayed) !== encodePortableDocument(recovered)) {
-        throw new Error("The checkpoint and journal disagree.");
-      }
-      document.value = recovered;
-      originDocument.value = origin;
-      journalEvents.value = events;
-      history = new PixelHistory();
-      selectedColor.value = firstOpaquePaletteIndex(recovered.palette, recovered.transparentIndex);
-      revision.value += 1;
-      persistenceStatus.value = `Recovered locally · ${events.length} journal events`;
-    }
-    persistenceAvailable.value = true;
-  } catch (error) {
-    handlePersistenceError(error);
-  } finally {
+  if (memoryOnly) {
+    persistenceStatus.value = "Editing in memory; local persistence disabled";
     initialized.value = true;
+  } else {
+    try {
+      persistence = new ProjectPersistence();
+      const stored = await persistence.load();
+      if (!stored.originDocument) {
+        const serialized = encodePortableDocument(document.value);
+        await persistence.initialize(serialized);
+        originDocument.value = cloneIndexedDocument(document.value);
+        persistenceStatus.value = "Local project ready · checkpoint created";
+      } else {
+        const origin = decodePortableDocument(stored.originDocument);
+        const events = stored.journalEvents.map(decodeJournalEvent);
+        const checkpoint = stored.checkpointDocument
+          ? decodePortableDocument(stored.checkpointDocument)
+          : cloneIndexedDocument(origin);
+        const recoveryEvents = stored.recoveryEvents.map(decodeJournalEvent);
+        const recovered = replayJournalEvents(checkpoint, recoveryEvents);
+        const fullyReplayed = replayJournalEvents(origin, events);
+        if (encodePortableDocument(fullyReplayed) !== encodePortableDocument(recovered)) {
+          throw new Error("The checkpoint and journal disagree.");
+        }
+        document.value = recovered;
+        originDocument.value = origin;
+        journalEvents.value = events;
+        history = new PixelHistory();
+        selectedColor.value = firstOpaquePaletteIndex(recovered.palette, recovered.transparentIndex);
+        revision.value += 1;
+        persistenceStatus.value = `Recovered locally · ${events.length} journal events`;
+      }
+      persistenceAvailable.value = true;
+    } catch (error) {
+      handlePersistenceError(error);
+    } finally {
+      initialized.value = true;
+    }
   }
 
   const capability = await probeTimelapseCapability(512, 512);

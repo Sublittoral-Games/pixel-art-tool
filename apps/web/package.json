@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@pixel-art-tool/core": "workspace:*",
+    "gifenc": "1.0.3",
+    "mediabunny": "1.50.8",
     "vue": "3.5.40"
   },
   "devDependencies": {

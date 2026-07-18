@@ -6,6 +6,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 const props = defineProps<{
   document: IndexedDocument;
+  disabled: boolean;
   paletteIndex: number;
   revision: number;
 }>();
@@ -297,6 +298,9 @@ function updateNavigation(): void {
 }
 
 function handlePointerDown(event: PointerEvent): void {
+  if (props.disabled) {
+    return;
+  }
   if (event.button !== 0 && event.button !== 1) {
     return;
   }
@@ -458,6 +462,7 @@ function handleKeyUp(event: KeyboardEvent): void {
 
 watch(() => props.revision, render);
 watch(() => props.paletteIndex, render);
+watch(() => props.document, fitCanvas);
 
 onMounted(() => {
   resizeObserver = new ResizeObserver(handleResize);
@@ -481,6 +486,7 @@ onBeforeUnmount(() => {
     <canvas
       ref="canvas"
       aria-label="Pixel canvas"
+      :aria-disabled="disabled"
       data-testid="pixel-canvas"
       @pointerdown="handlePointerDown"
       @pointermove="handlePointerMove"

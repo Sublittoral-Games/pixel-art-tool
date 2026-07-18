@@ -23,15 +23,29 @@ export type PersistenceResponse =
 interface PendingRequest {
   readonly resolve: (value: PersistedProject | undefined) => void;
   readonly reject: (reason: Error) => void;
+  readonly timeout: ReturnType<typeof globalThis.setTimeout>;
+}
+
+export interface ProjectPersistenceOptions {
+  readonly worker?: Worker;
+  readonly requestTimeoutMs?: number;
 }
 
 export class ProjectPersistence {
   readonly #worker: Worker;
   readonly #pending = new Map<number, PendingRequest>();
+  readonly #requestTimeoutMs: number;
   #nextRequestId = 1;
+  #destroyed = false;
 
-  constructor() {
-    this.#worker = new Worker(new URL("./workers/persistence.worker.ts", import.meta.url), { type: "module" });
+  constructor(options: ProjectPersistenceOptions = {}) {
+    const requestTimeoutMs = options.requestTimeoutMs ?? 3_000;
+    if (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0) {
+      throw new RangeError("The persistence request timeout must be positive.");
+    }
+    this.#requestTimeoutMs = requestTimeoutMs;
+    this.#worker = options.worker
+      ?? new Worker(new URL("./workers/persistence.worker.ts", import.meta.url), { type: "module" });
     this.#worker.addEventListener("message", this.#handleMessage);
     this.#worker.addEventListener("error", this.#handleWorkerError);
   }
@@ -62,6 +76,10 @@ export class ProjectPersistence {
   }
 
   destroy(): void {
+    if (this.#destroyed) {
+      return;
+    }
+    this.#destroyed = true;
     this.#worker.removeEventListener("message", this.#handleMessage);
     this.#worker.removeEventListener("error", this.#handleWorkerError);
     this.#worker.terminate();
@@ -69,11 +87,20 @@ export class ProjectPersistence {
   }
 
   #send(request: PersistenceOperation): Promise<PersistedProject | undefined> {
+    if (this.#destroyed) {
+      return Promise.reject(new Error("The persistence worker was stopped."));
+    }
     const requestId = this.#nextRequestId;
     this.#nextRequestId += 1;
 
     return new Promise((resolve, reject) => {
-      this.#pending.set(requestId, { resolve, reject });
+      const timeout = globalThis.setTimeout(() => {
+        if (!this.#pending.delete(requestId)) {
+          return;
+        }
+        reject(new Error(`Local persistence did not respond within ${this.#requestTimeoutMs} ms.`));
+      }, this.#requestTimeoutMs);
+      this.#pending.set(requestId, { resolve, reject, timeout });
       this.#worker.postMessage({ ...request, requestId } as PersistenceRequest);
     });
   }
@@ -84,6 +111,7 @@ export class ProjectPersistence {
       return;
     }
     this.#pending.delete(message.data.requestId);
+    globalThis.clearTimeout(pending.timeout);
 
     if (message.data.ok) {
       pending.resolve(message.data.value);
@@ -98,6 +126,7 @@ export class ProjectPersistence {
 
   #rejectAll(error: Error): void {
     for (const pending of this.#pending.values()) {
+      globalThis.clearTimeout(pending.timeout);
       pending.reject(error);
     }
     this.#pending.clear();

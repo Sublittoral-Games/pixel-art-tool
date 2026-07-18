@@ -44,6 +44,7 @@ const selectedColor = ref(3);
 const revision = ref(0);
 const initialized = ref(false);
 const busy = ref(false);
+const persistenceAvailable = ref(false);
 const persistenceStatus = ref("Opening local project…");
 const mediaStatus = ref("Checking video export…");
 const importInput = ref<HTMLInputElement>();
@@ -276,6 +277,9 @@ function samePixels(left: Uint8Array, right: Uint8Array): boolean {
 }
 
 function handlePersistenceError(error: unknown): void {
+  persistence?.destroy();
+  persistence = undefined;
+  persistenceAvailable.value = false;
   persistenceStatus.value = error instanceof Error
     ? `Local save unavailable: ${error.message}`
     : "Local save unavailable";
@@ -310,9 +314,8 @@ onMounted(async () => {
       revision.value += 1;
       persistenceStatus.value = `Recovered locally · ${events.length} journal events`;
     }
+    persistenceAvailable.value = true;
   } catch (error) {
-    persistence?.destroy();
-    persistence = undefined;
     handlePersistenceError(error);
   } finally {
     initialized.value = true;
@@ -341,7 +344,13 @@ onBeforeUnmount(() => {
         <summary>Project</summary>
         <div class="project-popover">
           <div class="project-actions">
-            <button type="button" :disabled="interactionLocked" @click="createCheckpoint">Save checkpoint</button>
+            <button
+              type="button"
+              :disabled="interactionLocked || !persistenceAvailable"
+              @click="createCheckpoint"
+            >
+              Save checkpoint
+            </button>
             <button type="button" :disabled="interactionLocked" @click="exportProject">Export project</button>
             <button type="button" :disabled="interactionLocked" @click="chooseProjectFile">Import project</button>
             <button type="button" :disabled="interactionLocked || journalEvents.length === 0" @click="replayHistory">

@@ -7,6 +7,22 @@ async function openEditor(page: Page): Promise<void> {
   await expect(page.getByRole("button", { name: "Pencil" })).toBeEnabled();
 }
 
+test("unlocks in memory-only mode when the persistence worker stalls", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "Persistence timeout runs once in desktop Chromium.");
+  await page.addInitScript(() => {
+    class StalledWorker extends EventTarget {
+      postMessage(): void {}
+      terminate(): void {}
+    }
+    Object.defineProperty(globalThis, "Worker", { configurable: true, value: StalledWorker });
+  });
+
+  await openEditor(page);
+  await page.getByText("Project", { exact: true }).click();
+  await expect(page.getByTestId("persistence-status")).toContainText("did not respond within 3000 ms");
+  await expect(page.getByRole("button", { name: "Save checkpoint" })).toBeDisabled();
+});
+
 test("draws one committed stroke and supports undo and redo", async ({ page }) => {
   await openEditor(page);
 

@@ -277,12 +277,13 @@ function samePixels(left: Uint8Array, right: Uint8Array): boolean {
 }
 
 function handlePersistenceError(error: unknown): void {
-  persistence?.destroy();
+  const failedPersistence = persistence;
   persistence = undefined;
   persistenceAvailable.value = false;
   persistenceStatus.value = error instanceof Error
     ? `Local save unavailable: ${error.message}`
     : "Local save unavailable";
+  failedPersistence?.abandon();
 }
 
 onMounted(async () => {

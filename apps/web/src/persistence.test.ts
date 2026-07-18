@@ -44,8 +44,8 @@ describe("ProjectPersistence", () => {
     await rejection;
     expect(worker.messages).toHaveLength(1);
     expect(vi.getTimerCount()).toBe(0);
-    persistence.destroy();
-    expect(worker.terminated).toBe(true);
+    persistence.abandon();
+    expect(worker.terminated).toBe(false);
   });
 
   it("clears the timeout when the worker responds", async () => {

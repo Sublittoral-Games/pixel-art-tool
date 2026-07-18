@@ -12,7 +12,9 @@ test("unlocks in memory-only mode when the persistence worker stalls", async ({ 
   await page.addInitScript(() => {
     class StalledWorker extends EventTarget {
       postMessage(): void {}
-      terminate(): void {}
+      terminate(): never {
+        throw new Error("A stalled worker must be abandoned without synchronous termination.");
+      }
     }
     Object.defineProperty(globalThis, "Worker", { configurable: true, value: StalledWorker });
   });

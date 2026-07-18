@@ -76,14 +76,27 @@ export class ProjectPersistence {
   }
 
   destroy(): void {
+    this.#stop(true);
+  }
+
+  abandon(): void {
+    this.#stop(false);
+  }
+
+  #stop(terminate: boolean): void {
     if (this.#destroyed) {
       return;
     }
     this.#destroyed = true;
     this.#worker.removeEventListener("message", this.#handleMessage);
     this.#worker.removeEventListener("error", this.#handleWorkerError);
-    this.#worker.terminate();
-    this.#rejectAll(new Error("The persistence worker was stopped."));
+    try {
+      if (terminate) {
+        this.#worker.terminate();
+      }
+    } finally {
+      this.#rejectAll(new Error("The persistence worker was stopped."));
+    }
   }
 
   #send(request: PersistenceOperation): Promise<PersistedProject | undefined> {

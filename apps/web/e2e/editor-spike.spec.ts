@@ -4,15 +4,16 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function openEditor(page: Page): Promise<void> {
   const browserName = page.context().browser()?.browserType().name();
-  await page.goto(browserName === "webkit" ? "/?persistence=memory" : "/");
+  await page.goto(browserName === "webkit" ? "/?persistence=memory&timelapse=gif" : "/");
   await expect(page.getByRole("button", { name: "Pencil" })).toBeEnabled();
 }
 
-test("explicit memory-only mode bypasses persistence startup", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "iphone-15-pro-max-webkit", "Memory-only startup covers WebKit without OPFS.");
+test("explicit compatibility mode bypasses persistence and codec probing", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "iphone-15-pro-max-webkit", "Compatibility startup covers WebKit without OPFS or WebCodecs.");
   await openEditor(page);
   await page.getByText("Project", { exact: true }).click();
   await expect(page.getByTestId("persistence-status")).toContainText("local persistence disabled");
+  await expect(page.getByTestId("media-status")).toContainText("GIF fallback forced");
   await expect(page.getByRole("button", { name: "Save checkpoint" })).toBeDisabled();
 });
 

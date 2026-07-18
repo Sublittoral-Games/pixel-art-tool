@@ -48,7 +48,9 @@ const persistenceAvailable = ref(false);
 const persistenceStatus = ref("Opening local project…");
 const mediaStatus = ref("Checking video export…");
 const importInput = ref<HTMLInputElement>();
-const memoryOnly = new URLSearchParams(window.location.search).get("persistence") === "memory";
+const searchParameters = new URLSearchParams(window.location.search);
+const memoryOnly = searchParameters.get("persistence") === "memory";
+const forceGif = searchParameters.get("timelapse") === "gif";
 
 let history = new PixelHistory();
 let persistence: ProjectPersistence | undefined;
@@ -227,7 +229,7 @@ async function downloadTimelapse(): Promise<void> {
   busy.value = true;
   mediaStatus.value = "Rendering timelapse…";
   try {
-    const exported = await exportTimelapse(originDocument.value, journalEvents.value);
+    const exported = await exportTimelapse(originDocument.value, journalEvents.value, forceGif);
     downloadBlob(exported.blob, `untitled-timelapse.${exported.extension}`);
     mediaStatus.value = exported.extension === "mp4"
       ? "Exported AVC/MP4 through WebCodecs"
@@ -328,8 +330,12 @@ onMounted(async () => {
     }
   }
 
-  const capability = await probeTimelapseCapability(512, 512);
-  mediaStatus.value = capability.detail;
+  if (forceGif) {
+    mediaStatus.value = "GIF fallback forced; codec probe disabled";
+  } else {
+    const capability = await probeTimelapseCapability(512, 512);
+    mediaStatus.value = capability.detail;
+  }
 });
 
 onBeforeUnmount(() => {

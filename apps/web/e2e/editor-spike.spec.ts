@@ -2,6 +2,35 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+test.beforeEach(async ({ page }, testInfo) => {
+  if (testInfo.project.name !== "iphone-15-pro-max-webkit") {
+    return;
+  }
+
+  await page.addInitScript(() => {
+    class UnavailablePersistenceWorker extends EventTarget {
+      postMessage(request: { readonly requestId: number }): void {
+        queueMicrotask(() => {
+          this.dispatchEvent(new MessageEvent("message", {
+            data: {
+              requestId: request.requestId,
+              ok: false,
+              error: "OPFS unavailable in the WebKit test environment.",
+            },
+          }));
+        });
+      }
+
+      terminate(): void {}
+    }
+
+    Object.defineProperty(globalThis, "Worker", {
+      configurable: true,
+      value: UnavailablePersistenceWorker,
+    });
+  });
+});
+
 async function openEditor(page: Page): Promise<void> {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Pencil" })).toBeEnabled();

@@ -1,9 +1,42 @@
 // SPDX-License-Identifier: MPL-2.0
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function openEditor(page: Page): Promise<void> {
+  const browserName = page.context().browser()?.browserType().name();
+  await page.goto(browserName === "webkit" ? "/?persistence=memory&timelapse=gif" : "/");
+  await expect(page.getByRole("button", { name: "Pencil" })).toBeEnabled();
+}
+
+test("explicit compatibility mode bypasses persistence and codec probing", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "iphone-15-pro-max-webkit", "Compatibility startup covers WebKit without OPFS or WebCodecs.");
+  await openEditor(page);
+  await page.getByText("Project", { exact: true }).click();
+  await expect(page.getByTestId("persistence-status")).toContainText("local persistence disabled");
+  await expect(page.getByTestId("media-status")).toContainText("GIF fallback forced");
+  await expect(page.getByRole("button", { name: "Save checkpoint" })).toBeDisabled();
+});
+
+test("unlocks in memory-only mode when the persistence worker stalls", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "Persistence timeout runs once in desktop Chromium.");
+  await page.addInitScript(() => {
+    class StalledWorker extends EventTarget {
+      postMessage(): void {}
+      terminate(): never {
+        throw new Error("A stalled worker must be abandoned without synchronous termination.");
+      }
+    }
+    Object.defineProperty(globalThis, "Worker", { configurable: true, value: StalledWorker });
+  });
+
+  await openEditor(page);
+  await page.getByText("Project", { exact: true }).click();
+  await expect(page.getByTestId("persistence-status")).toContainText("did not respond within 3000 ms");
+  await expect(page.getByRole("button", { name: "Save checkpoint" })).toBeDisabled();
+});
 
 test("draws one committed stroke and supports undo and redo", async ({ page }) => {
-  await page.goto("/");
+  await openEditor(page);
 
   const canvas = page.getByTestId("pixel-canvas");
   const bounds = await canvas.boundingBox();
@@ -26,7 +59,7 @@ test("draws one committed stroke and supports undo and redo", async ({ page }) =
 
 test("wheel zoom changes the view without changing the document", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "Wheel navigation runs in desktop Chromium.");
-  await page.goto("/");
+  await openEditor(page);
 
   const canvas = page.getByTestId("pixel-canvas");
   const bounds = await canvas.boundingBox();
@@ -44,7 +77,7 @@ test("wheel zoom changes the view without changing the document", async ({ page 
 });
 
 test("pen hover previews its target pixel without changing the document", async ({ page }) => {
-  await page.goto("/");
+  await openEditor(page);
 
   const canvas = page.getByTestId("pixel-canvas");
   const bounds = await canvas.boundingBox();
@@ -82,7 +115,7 @@ test("pen hover previews its target pixel without changing the document", async 
 
 test("a second touch cancels tentative drawing and starts pinch navigation", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "iphone-15-pro-max-webkit", "Touch contract runs in mobile WebKit.");
-  await page.goto("/");
+  await openEditor(page);
 
   const canvas = page.getByTestId("pixel-canvas");
   const bounds = await canvas.boundingBox();
@@ -148,10 +181,118 @@ test("a second touch cancels tentative drawing and starts pinch navigation", asy
 
 test("the phone shell keeps primary controls visible without horizontal overflow", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "iphone-15-pro-max-webkit", "Phone layout runs in mobile WebKit.");
-  await page.goto("/");
+  await openEditor(page);
 
   for (const name of ["Pencil", "Eraser", "Undo", "Redo"]) {
     await expect(page.getByRole("button", { name })).toBeVisible();
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(430);
+});
+
+test("checkpoints and recovers the current document through an offline reload", async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "The Playwright WebKit build does not expose OPFS.");
+  await openEditor(page);
+
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  if (!await page.evaluate(() => Boolean(navigator.serviceWorker.controller))) {
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Pencil" })).toBeEnabled();
+  }
+
+  const canvas = page.getByTestId("pixel-canvas");
+  const bounds = await canvas.boundingBox();
+  if (!bounds) {
+    throw new Error("Pixel canvas did not have layout bounds.");
+  }
+  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await expect(page.getByTestId("painted-count")).not.toContainText("· 0 painted");
+  await expect(page.getByTestId("persistence-status")).toContainText("Saved locally");
+
+  await page.getByText("Project", { exact: true }).click();
+  await page.getByRole("button", { name: "Save checkpoint" }).click();
+  await expect(page.getByTestId("persistence-status")).toContainText("Checkpoint ready");
+
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.getByTestId("painted-count")).not.toContainText("· 0 painted");
+  await expect(page.getByTestId("persistence-status")).toContainText("Recovered locally");
+  await context.setOffline(false);
+});
+
+test("imports and exports a validated portable indexed document", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "Portable project flow runs once in desktop Chromium.");
+  await openEditor(page);
+
+  await page.getByLabel("Choose portable project").setInputFiles({
+    name: "tiny.pixelart.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({
+      schemaVersion: 1,
+      width: 2,
+      height: 2,
+      transparentIndex: 0,
+      palette: [
+        { id: "transparent", name: "Transparent", rgba: [0, 0, 0, 0] },
+        { id: "ink", name: "Ink", rgba: [20, 30, 40, 255] },
+      ],
+      pixels: [1, 0, 0, 1],
+    })),
+  });
+
+  await expect(page.getByTestId("painted-count")).toContainText("2 × 2 · 2 painted");
+  await expect(page.getByTestId("persistence-status")).toContainText("checkpoint ready");
+  await page.getByText("Project", { exact: true }).click();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export project" }).click();
+  await expect((await downloadPromise).suggestedFilename()).toBe("untitled-sprite.pixelart.json");
+});
+
+test("replays the journal and exports the animated GIF fallback", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "Timelapse fallback runs once in desktop Chromium.");
+  await page.addInitScript(() => {
+    Object.defineProperty(globalThis, "VideoEncoder", { configurable: true, value: undefined });
+  });
+  await openEditor(page);
+
+  const canvas = page.getByTestId("pixel-canvas");
+  const bounds = await canvas.boundingBox();
+  if (!bounds) {
+    throw new Error("Pixel canvas did not have layout bounds.");
+  }
+  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await expect(page.getByTestId("persistence-status")).toContainText("Saved locally");
+
+  await page.getByText("Project", { exact: true }).click();
+  await page.getByRole("button", { name: "Replay history" }).click();
+  await expect(page.getByTestId("persistence-status")).toContainText("Replay matched");
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export timelapse" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("untitled-timelapse.gif");
+  await expect(page.getByTestId("media-status")).toContainText("animated GIF fallback");
+});
+
+test("exports muxed AVC/MP4 when the browser reports encoder support", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-chromium", "MP4 export runs once in desktop Chromium.");
+  await openEditor(page);
+  const mediaStatus = page.getByTestId("media-status");
+  await expect(mediaStatus).not.toContainText("Checking");
+  test.skip(!await mediaStatus.textContent().then((status) => status?.includes("AVC/MP4 ready") ?? false),
+    "This browser does not expose an AVC encoder.");
+
+  const canvas = page.getByTestId("pixel-canvas");
+  const bounds = await canvas.boundingBox();
+  if (!bounds) {
+    throw new Error("Pixel canvas did not have layout bounds.");
+  }
+  await page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+  await page.getByText("Project", { exact: true }).click();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export timelapse" }).click();
+  expect((await downloadPromise).suggestedFilename()).toBe("untitled-timelapse.mp4");
+  await expect(mediaStatus).toContainText("AVC/MP4 through WebCodecs");
 });

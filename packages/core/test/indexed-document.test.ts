@@ -3,10 +3,17 @@
 import { describe, expect, it } from "vitest";
 import {
   applyPixelPatch,
+  createPixelPatchJournalEvent,
   createPixelPatch,
   createIndexedDocument,
+  decodeJournalEvent,
+  decodePortableDocument,
+  encodeJournalEvent,
+  encodePortableDocument,
+  invertPixelPatch,
   paintPixel,
   PixelHistory,
+  replayJournalEvents,
   renderRgba,
   replacePaletteEntry,
   type PaletteEntry,
@@ -108,5 +115,82 @@ describe("indexed documents", () => {
     applyPixelPatch(document, erase);
 
     expect(document.pixels[0]).toBe(1);
+  });
+
+  it("round-trips a versioned portable document checkpoint", () => {
+    const document = createIndexedDocument(2, 2, [ink, transparent], 1);
+    paintPixel(document, 1, 0, 0);
+    paintPixel(document, 0, 1, 0);
+
+    const restored = decodePortableDocument(encodePortableDocument(document));
+
+    expect(restored).not.toBe(document);
+    expect(restored.palette).toEqual(document.palette);
+    expect(restored.transparentIndex).toBe(1);
+    expect(restored.pixels).toEqual(document.pixels);
+  });
+
+  it("rejects portable documents whose pixels reference missing palette entries", () => {
+    const invalid = JSON.stringify({
+      schemaVersion: 1,
+      width: 1,
+      height: 1,
+      transparentIndex: 0,
+      palette: [transparent],
+      pixels: [7],
+    });
+
+    expect(() => decodePortableDocument(invalid)).toThrow("missing palette entry");
+  });
+
+  it("round-trips a journal event and replays its resolved patch", () => {
+    const source = createIndexedDocument(2, 1, [transparent, ink]);
+    const replay = createIndexedDocument(2, 1, [transparent, ink]);
+    const patch = createPixelPatch(source, [{ x: 1, y: 0, paletteIndex: 1 }]);
+    const event = createPixelPatchJournalEvent(patch, "event-1", "2026-07-18T00:00:00.000Z");
+
+    const restoredEvent = decodeJournalEvent(encodeJournalEvent(event));
+    applyPixelPatch(replay, restoredEvent.patch);
+
+    expect(restoredEvent).toEqual(event);
+    expect([...replay.pixels]).toEqual([0, 1]);
+  });
+
+  it("records undo and redo as forward-replayable patches", () => {
+    const document = createIndexedDocument(2, 1, [transparent, ink]);
+    const history = new PixelHistory();
+    const draw = createPixelPatch(document, [{ x: 0, y: 0, paletteIndex: 1 }]);
+    history.commit(document, draw);
+
+    const undo = history.undoAsPatch(document);
+    const redo = history.redoAsPatch(document);
+
+    expect(undo).toEqual(invertPixelPatch(draw));
+    expect(redo).toEqual(draw);
+    expect([...document.pixels]).toEqual([1, 0]);
+  });
+
+  it("replays a validated journal from its origin document", () => {
+    const origin = createIndexedDocument(2, 1, [transparent, ink]);
+    const draw = createPixelPatch(origin, [{ x: 1, y: 0, paletteIndex: 1 }]);
+    const undo = invertPixelPatch(draw);
+    const events = [
+      createPixelPatchJournalEvent(draw, "draw", "2026-07-18T00:00:00.000Z"),
+      createPixelPatchJournalEvent(undo, "undo", "2026-07-18T00:00:01.000Z"),
+    ];
+
+    expect([...replayJournalEvents(origin, events).pixels]).toEqual([0, 0]);
+  });
+
+  it("rejects corrupt or out-of-order journal replay", () => {
+    const origin = createIndexedDocument(1, 1, [transparent, ink]);
+    const invalidPatch = {
+      width: 1,
+      height: 1,
+      changes: [{ offset: 0, before: 1, after: 0 }],
+    };
+    const event = createPixelPatchJournalEvent(invalidPatch, "invalid", "2026-07-18T00:00:00.000Z");
+
+    expect(() => replayJournalEvents(origin, [event])).toThrow("does not match the replay state");
   });
 });
